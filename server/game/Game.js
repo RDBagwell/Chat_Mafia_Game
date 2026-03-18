@@ -5,7 +5,8 @@ export class Game {
     constructor(id) {
         this.id = id;
         this.players = [];
-        this.phase = new PhaseEngine();
+        this.phase = "night"
+        this.phaseRunner = new PhaseEngine();
         this.round = 1;
         this.gameState = "lobby";
         this.chatLog = [];

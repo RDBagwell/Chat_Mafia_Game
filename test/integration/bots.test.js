@@ -80,7 +80,8 @@ describe("secrets", () => {
         for (let i = 0; i < 4; i++) await host.request("addBot", {});
         await host.request("startGame", {});
         await host.request("chat", { channel: "nope", text: "x" });
-        await host.waitForState((s) => s.phase === "night");
+        // Bots may resolve the night instantly, so wait for "game started", not a specific phase.
+        await host.waitForState((s) => s.phase !== "lobby");
         expect(JSON.stringify(host.raw)).not.toContain(key);
     });
 });

@@ -43,6 +43,11 @@ export class SocketController {
     clientIp(socket) {
         const hops = this.config.trustProxyHops;
         const direct = socket.handshake.address;
+        const header = this.config.clientIpHeader;
+        if (header) {
+            const value = String(socket.handshake.headers[header] || "").trim();
+            if (/^[0-9a-fA-F:.]{2,45}$/.test(value)) return value;
+        }
         if (!hops) return direct;
         const forwarded = String(socket.handshake.headers["x-forwarded-for"] || "")
             .split(",")

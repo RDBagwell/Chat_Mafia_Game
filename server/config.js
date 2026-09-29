@@ -37,6 +37,9 @@ export function loadConfig(env = process.env) {
         // Number of reverse proxies in front of the app (Render = 1). Used to
         // read the real client IP from X-Forwarded-For for per-IP limits.
         trustProxyHops: int(env.TRUST_PROXY_HOPS, 0),
+        // A header set (and overwritten) by the edge in front of the app, e.g.
+        // "true-client-ip" on Render (Cloudflare). Takes precedence when present.
+        clientIpHeader: (env.CLIENT_IP_HEADER || "").toLowerCase().trim() || null,
         serveClient: env.SERVE_CLIENT !== "false",
 
         maxGames: int(env.MAX_GAMES, 200),

@@ -1,7 +1,7 @@
 import { on } from "./socket.js";
 import { addMessage, addSystemMessage } from "./chat.js";
 import { updatePlayers } from "./player.js";
-import { createGame, joinGame, startGame, sendChat } from "./game.js";
+import { createGame, joinGame, startGame, advancePhase, sendChat } from "./game.js";
 
 const usernameInput = document.getElementById("username");
 const roomIdInput = document.getElementById("roomId");
@@ -41,6 +41,15 @@ document.getElementById("startGameBtn")?.addEventListener("click", () => {
         return;
     }
     startGame(gameId);
+});
+
+document.getElementById("advancePhaseBtn")?.addEventListener("click", () => {
+    const { gameId } = getSessionValues();
+    if (!gameId) {
+        showError("Enter a room ID first.");
+        return;
+    }
+    advancePhase(gameId);
 });
 
 function sendMessage() {

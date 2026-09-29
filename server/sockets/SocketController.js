@@ -1,4 +1,5 @@
 import { Game } from "../game/Game.js";
+import { generateGameCode } from "../security/random.js";
 
 export class SocketController {
     constructor(io, games) {
@@ -18,8 +19,7 @@ export class SocketController {
             socket.on("createGame",  ()       => this._handle(socket, "createGame",  () => this.createGame(socket)));
             socket.on("joinGame",    (data)   => this._handle(socket, "joinGame",    () => this.joinGame(socket, data)));
             socket.on("startGame",   (data)   => this._handle(socket, "startGame",   () => this.startGame(socket, data)));
-            socket.on("nightPhase",  (data)   => this._handle(socket, "nightPhase",  () => this.nightPhase(socket, data)));
-            socket.on("dayPhase",    (data)   => this._handle(socket, "dayPhase",    () => this.dayPhase(socket, data)));
+            socket.on("advancePhase", (data)  => this._handle(socket, "advancePhase", () => this.advancePhase(socket, data)));
             socket.on("chatMessage", (data)   => this._handle(socket, "chatMessage", () => this.chatMessage(socket, data)));
             socket.on("disconnect",  ()       => this._handle(socket, "disconnect",  () => this.disconnect(socket)));
         });
@@ -30,9 +30,8 @@ export class SocketController {
     // -------------------------------------------------------------------------
 
     createGame(socket) {
-        // Use a unique ID instead of hardcoded "Test"
-        // const gameId = crypto.randomUUID();
-        const gameId = "Test";
+        let gameId;
+        do gameId = generateGameCode(); while (this.games[gameId]);
         const game = new Game(gameId);
 
         this.games[gameId] = game;
@@ -43,7 +42,6 @@ export class SocketController {
 
         socket.emit("gameCreated", { gameId });
         this._log("info", `Game created with ID: ${gameId}`);
-        console.log(this.games[gameId]);
     }
 
     joinGame(socket, data) {
@@ -65,17 +63,17 @@ export class SocketController {
             return socket.emit("error", { message: "Game not found" });
         }
 
-        if (game.gameState !== "lobby") {
+        if (game.phase !== "lobby") {
             return socket.emit("error", { message: "Game has already started" });
         }
 
         //  Acknowledge duplicate joins instead of silently ignoring them
-        if (game.players.find((p) => p.name === userName)) {
+        if (game.findPlayerByName(userName)) {
             return socket.emit("error", { message: "Username already taken in this game" });
         }
 
-        //  Player construction belongs in Game/Player, not the controller
-        game.addPlayer({ id: socket.id, name: userName });
+        const player = game.addPlayer({ name: userName });
+        socket.data.playerId = player.id;
 
         //  Consistently use gameId (not roomId) on socket.data
         socket.data.userName = userName;
@@ -106,26 +104,22 @@ export class SocketController {
             return socket.emit("error", { message: "Not enough players to start the game" });
         }
 
-        game.assignRoles();
-        game.gameState = "active";
+        const problem = game.validateStart();
+        if (problem) return socket.emit("error", { message: problem });
+        game.phaseRunner.startGame(game);
 
         //  Send each player only their own role, not the full game state
         game.players.forEach((player) => {
-            const playerSocket = this.io.sockets.sockets.get(player.id);
+            const playerSocket = [...this.io.sockets.sockets.values()].find((s) => s.data.playerId === player.id);
             if (playerSocket) {
                 playerSocket.emit("gameStarted", this._sanitizeGameForPlayer(game, player.id));
             }
         });
-        console.log(game);
         this.io.to(gameId).emit("systemMessage", { message: "The game has started!" });
     }
 
-    nightPhase(socket, data) {
-        this._runPhase(socket, data, (game) => game.phase.runNight(game));
-    }
-
-    dayPhase(socket, data) {
-        this._runPhase(socket, data, (game) => game.phase.runDay(game));
+    advancePhase(socket, data) {
+        this._runPhase(socket, data, (game) => game.phaseRunner.advance(game));
     }
 
     chatMessage(socket, data) {
@@ -152,9 +146,11 @@ export class SocketController {
         if (gameId && userName) {
             const game = this.games[gameId];
 
-            if (game) {
-                //  Remove the player from the game on disconnect
-                game.players = game.players.filter((p) => p.id !== socket.id);
+            if (game && game.phase !== "lobby") {
+                // Mid-game: keep the seat so role counts and win checks stay correct.
+                this.io.to(gameId).emit("systemMessage", { message: `${userName} disconnected.` });
+            } else if (game) {
+                game.removePlayer(socket.data.playerId);
 
                 //  Clean up empty games to prevent memory leaks
                 if (game.players.length === 0) {
@@ -210,7 +206,7 @@ export class SocketController {
 
         this.io.to(gameId).emit("phaseUpdate", this._sanitizeGameForBroadcast(game));
 
-        if (game.gameState === "ended") {
+        if (game.phase === "ended") {
             this.io.to(gameId).emit("gameOver", this._sanitizeGameForBroadcast(game));
         }
     }
@@ -219,16 +215,15 @@ export class SocketController {
      *  Returns a sanitized view of the game for a specific player.
      * Only their own role is included — other players' roles are stripped.
      */
-    _sanitizeGameForPlayer(game, socketId) {
+    _sanitizeGameForPlayer(game, playerId) {
         return {
-            id: game.id,
-            gameState: game.gameState,
+            ...this._sanitizeGameForBroadcast(game),
             players: game.players.map((p) => ({
                 id: p.id,
                 name: p.name,
                 alive: p.alive,
-                // Only reveal the role if it belongs to the requesting socket
-                role: p.id === socketId ? p.role : null,
+                // Only reveal the role if it belongs to the requesting player
+                role: p.id === playerId ? p.role : null,
             })),
         };
     }
@@ -240,12 +235,15 @@ export class SocketController {
     _sanitizeGameForBroadcast(game) {
         return {
             id: game.id,
-            gameState: game.gameState,
+            phase: game.phase,
+            round: game.round,
+            winner: game.winner,
+            events: game.events.filter((e) => e.visibility.public),
             players: game.players.map((p) => ({
                 id: p.id,
                 name: p.name,
                 alive: p.alive,
-                role: null,
+                role: p.revealed || game.phase === "ended" ? p.role : null,
             })),
         };
     }

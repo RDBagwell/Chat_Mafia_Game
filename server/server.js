@@ -1,7 +1,7 @@
 import app from './index.js';
 import http from 'http';
 import { Server } from 'socket.io';
-import { SocketController } from './sockets/SocketController .js';
+import { SocketController } from './sockets/SocketController.js';
 
 const server = http.createServer(app);
 const io = new Server(server, { 

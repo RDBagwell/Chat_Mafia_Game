@@ -30,6 +30,15 @@ export function startGame(gameId) {
 }
 
 /**
+ * Asks the server to advance to the next phase (host only; the server checks).
+ * @param {string} gameId
+ */
+export function advancePhase(gameId) {
+    if (!gameId) throw new Error("gameId is required");
+    safeEmit("advancePhase", { gameId });
+}
+
+/**
  * Sends a chat message in the current game.
  * @param {string} gameId
  * @param {string} userName

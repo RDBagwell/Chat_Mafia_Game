@@ -12,7 +12,8 @@
     "start": "node server/server.js",
     "dev": "node --watch-path=server --watch-path=client server/server.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "vendor": "node -e \"const fs=require('fs');fs.writeFileSync('client/vendor/socket.io.esm.min.js',fs.readFileSync('node_modules/socket.io-client/dist/socket.io.esm.min.js','utf8').replace(/\\n\\/\\/# sourceMappingURL=.*$/,''))\""
   },
   "license": "ISC",
   "dependencies": {

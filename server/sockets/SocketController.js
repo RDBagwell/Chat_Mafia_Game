@@ -1,258 +1,205 @@
-import { Game } from "../game/Game.js";
-import { generateGameCode } from "../security/random.js";
+import { HumanController } from "../players/HumanController.js";
+import { ERRORS } from "../game/GameSession.js";
+import { GAME_COMMANDS, eventSchemas, normalizeGameCode, sanitizeName, validateEvent } from "../security/validation.js";
+import { KeyedRateLimiter, TokenBucket } from "../security/rateLimit.js";
 
+const SESSION_EVENTS = new Set(["createGame", "joinGame", "resume"]);
+const KNOWN_EVENTS = new Set(Object.keys(eventSchemas));
+const MAX_VIOLATIONS = 20;
+
+/**
+ * Socket.io boundary. Everything that arrives here is hostile until proven
+ * otherwise: every event must be known, its payload must pass its zod schema,
+ * and identity comes only from socket.data.seat, which only the server sets.
+ */
 export class SocketController {
-    constructor(io, games) {
+    constructor(io, manager, config, log = () => {}) {
         this.io = io;
-        this.games = games;
-        this.register();
+        this.manager = manager;
+        this.config = config;
+        this.log = log;
+        this.joinLimiter = new KeyedRateLimiter(config.limits.joinPerIp);
+        this.createLimiter = new KeyedRateLimiter(config.limits.createPerIp);
+        this.connectLimiter = new KeyedRateLimiter(config.limits.connectPerIp);
+        this.connectionsPerIp = new Map();
+
+        this.pruner = setInterval(() => {
+            for (const limiter of [this.joinLimiter, this.createLimiter, this.connectLimiter]) limiter.prune();
+        }, 60_000);
+        this.pruner.unref?.();
+
+        io.use((socket, next) => this.admit(socket, next));
+        io.on("connection", (socket) => this.register(socket));
+    }
+
+    stop() {
+        clearInterval(this.pruner);
     }
 
     // -------------------------------------------------------------------------
-    // Registration
+    // Connection admission
     // -------------------------------------------------------------------------
 
-    register() {
-        this.io.on("connection", (socket) => {
-            this._log("info", `New player connected: ${socket.id}`);
+    clientIp(socket) {
+        const hops = this.config.trustProxyHops;
+        const direct = socket.handshake.address;
+        if (!hops) return direct;
+        const forwarded = String(socket.handshake.headers["x-forwarded-for"] || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        // Each trusted proxy appends the address it saw; entries before those
+        // are client-controlled and ignored.
+        return forwarded[Math.max(0, forwarded.length - hops)] || direct;
+    }
 
-            socket.on("createGame",  ()       => this._handle(socket, "createGame",  () => this.createGame(socket)));
-            socket.on("joinGame",    (data)   => this._handle(socket, "joinGame",    () => this.joinGame(socket, data)));
-            socket.on("startGame",   (data)   => this._handle(socket, "startGame",   () => this.startGame(socket, data)));
-            socket.on("advancePhase", (data)  => this._handle(socket, "advancePhase", () => this.advancePhase(socket, data)));
-            socket.on("chatMessage", (data)   => this._handle(socket, "chatMessage", () => this.chatMessage(socket, data)));
-            socket.on("disconnect",  ()       => this._handle(socket, "disconnect",  () => this.disconnect(socket)));
+    admit(socket, next) {
+        const ip = this.clientIp(socket);
+        socket.data.ip = ip;
+        const open = this.connectionsPerIp.get(ip) || 0;
+        if (open >= this.config.limits.maxConcurrentPerIp || !this.connectLimiter.take(ip)) {
+            return next(new Error("Too many connections"));
+        }
+        this.connectionsPerIp.set(ip, open + 1);
+        socket.data.counted = true;
+        next();
+    }
+
+    register(socket) {
+        socket.data.seat = null;
+        socket.data.violations = 0;
+        socket.data.bucket = new TokenBucket(this.config.limits.socketEvents);
+
+        socket.onAny((event) => {
+            if (!KNOWN_EVENTS.has(event)) this.violation(socket, ERRORS.invalid);
         });
-    }
 
-    // -------------------------------------------------------------------------
-    // Handlers
-    // -------------------------------------------------------------------------
-
-    createGame(socket) {
-        let gameId;
-        do gameId = generateGameCode(); while (this.games[gameId]);
-        const game = new Game(gameId);
-
-        this.games[gameId] = game;
-
-        socket.join(gameId);
-        socket.data.gameId = gameId;
-        socket.data.isHost = true;
-
-        socket.emit("gameCreated", { gameId });
-        this._log("info", `Game created with ID: ${gameId}`);
-    }
-
-    joinGame(socket, data) {
-        this._log("info", `Player ${data?.userName} is trying to join game: ${data?.gameId}`);
-        //  Validate incoming payload before destructuring
-        if (!data?.gameId || typeof data.gameId !== "string") {
-            return socket.emit("error", { message: "Invalid payload: gameId is required" });
-        }
-        if (!data?.userName || typeof data.userName !== "string") {
-            return socket.emit("error", { message: "Invalid payload: userName is required" });
+        for (const event of KNOWN_EVENTS) {
+            socket.on(event, (payload, ack) => this.dispatch(socket, event, payload, ack));
         }
 
-        const { gameId, userName } = data;
-        const game = this.games[gameId];
-
-        this._log("info", `Player ${userName} is trying to join game: ${gameId}`);
-
-        if (!game) {
-            return socket.emit("error", { message: "Game not found" });
-        }
-
-        if (game.phase !== "lobby") {
-            return socket.emit("error", { message: "Game has already started" });
-        }
-
-        //  Acknowledge duplicate joins instead of silently ignoring them
-        if (game.findPlayerByName(userName)) {
-            return socket.emit("error", { message: "Username already taken in this game" });
-        }
-
-        const player = game.addPlayer({ name: userName });
-        socket.data.playerId = player.id;
-
-        //  Consistently use gameId (not roomId) on socket.data
-        socket.data.userName = userName;
-        socket.data.gameId = gameId;
-
-        socket.join(gameId);
-
-        this.io.to(gameId).emit("playerJoined", game.players);
-        this.io.to(gameId).emit("systemMessage", { message: `${userName} has joined the game.` });
-    }
-
-    startGame(socket, data) {
-        if (!data?.gameId) {
-            return socket.emit("error", { message: "Invalid payload: gameId is required" });
-        }
-
-        const { gameId } = data;
-        const game = this.games[gameId];
-
-        if (!game) return socket.emit("error", { message: "Game not found" });
-
-        //  Only the host can start the game
-        if (!socket.data.isHost) {
-            return socket.emit("error", { message: "Only the host can start the game" });
-        }
-
-        if (game.players.length < 4) {
-            return socket.emit("error", { message: "Not enough players to start the game" });
-        }
-
-        const problem = game.validateStart();
-        if (problem) return socket.emit("error", { message: problem });
-        game.phaseRunner.startGame(game);
-
-        //  Send each player only their own role, not the full game state
-        game.players.forEach((player) => {
-            const playerSocket = [...this.io.sockets.sockets.values()].find((s) => s.data.playerId === player.id);
-            if (playerSocket) {
-                playerSocket.emit("gameStarted", this._sanitizeGameForPlayer(game, player.id));
-            }
-        });
-        this.io.to(gameId).emit("systemMessage", { message: "The game has started!" });
-    }
-
-    advancePhase(socket, data) {
-        this._runPhase(socket, data, (game) => game.phaseRunner.advance(game));
-    }
-
-    chatMessage(socket, data) {
-        if (!data?.message || typeof data.message !== "string") {
-            return socket.emit("error", { message: "Invalid payload: message is required" });
-        }
-
-        //  Use gameId — socket.data.roomId was never set, so chat was always broken
-        const { gameId, userName } = socket.data;
-
-        if (!gameId) return;
-
-        this.io.to(gameId).emit("chatMessage", {
-            userName,
-            message: data.message,
-            timestamp: new Date().toISOString(),
-        });
-    }
-
-    disconnect(socket) {
-        //  Use gameId — socket.data.roomId was never set, so the message never sent
-        const { gameId, userName } = socket.data || {};
-
-        if (gameId && userName) {
-            const game = this.games[gameId];
-
-            if (game && game.phase !== "lobby") {
-                // Mid-game: keep the seat so role counts and win checks stay correct.
-                this.io.to(gameId).emit("systemMessage", { message: `${userName} disconnected.` });
-            } else if (game) {
-                game.removePlayer(socket.data.playerId);
-
-                //  Clean up empty games to prevent memory leaks
-                if (game.players.length === 0) {
-                    delete this.games[gameId];
-                    this._log("info", `Game ${gameId} removed (no players remaining)`);
-                } else {
-                    this.io.to(gameId).emit("playerLeft", game.players);
-                    this.io.to(gameId).emit("systemMessage", { message: `${userName} has left the game.` });
+        socket.on("disconnect", () =>
+            this.safe(socket, "disconnect", () => {
+                if (socket.data.counted) {
+                    const ip = socket.data.ip;
+                    const left = (this.connectionsPerIp.get(ip) || 1) - 1;
+                    if (left > 0) this.connectionsPerIp.set(ip, left);
+                    else this.connectionsPerIp.delete(ip);
                 }
-            }
-        }
-
-        this._log("info", `Disconnected: ${socket.id}`);
+                const { seat, controller } = socket.data;
+                if (seat) this.manager.get(seat.gameId)?.disconnected(seat.playerId, controller);
+            })
+        );
     }
 
     // -------------------------------------------------------------------------
-    // Private Helpers
+    // Dispatch
     // -------------------------------------------------------------------------
 
-    /**
-     * Wraps every handler in a try/catch so a thrown error never crashes the
-     * process. Emits a consistent error payload back to the offending socket.
-     */
-    _handle(socket, event, fn) {
+    dispatch(socket, event, payload, ack) {
+        // Allow emit(event, ack) with no payload.
+        if (typeof payload === "function" && ack === undefined) {
+            ack = payload;
+            payload = undefined;
+        }
+        const reply = (result) => {
+            if (typeof ack === "function") ack(result);
+            else if (!result.ok) socket.emit("serverError", { message: result.error });
+        };
+
+        this.safe(socket, event, () => {
+            if (!socket.data.bucket.take()) return reply(this.violation(socket, ERRORS.rateLimited, false));
+            const valid = validateEvent(event, payload);
+            if (!valid.ok) return reply(this.violation(socket, ERRORS.invalid, false));
+
+            if (SESSION_EVENTS.has(event)) return reply(this[event](socket, valid.data));
+            if (GAME_COMMANDS.has(event)) return reply(this.command(socket, event, valid.data));
+            return reply({ ok: false, error: ERRORS.invalid });
+        }, reply);
+    }
+
+    /** Counts abuse; persistent offenders are disconnected. */
+    violation(socket, error, emit = true) {
+        socket.data.violations++;
+        if (socket.data.violations > MAX_VIOLATIONS) {
+            this.log("warn", "disconnecting socket after repeated invalid or excessive events");
+            socket.disconnect(true);
+        } else if (emit) {
+            socket.emit("serverError", { message: error });
+        }
+        return { ok: false, error };
+    }
+
+    command(socket, event, data) {
+        const seat = socket.data.seat;
+        const session = seat && this.manager.get(seat.gameId);
+        if (!session) return { ok: false, error: ERRORS.notAllowed };
+        return session.handleCommand(seat.playerId, event, data);
+    }
+
+    /** A socket holds at most one seat; taking a new one releases the old. */
+    releaseSeat(socket) {
+        const { seat } = socket.data;
+        if (!seat) return;
+        const session = this.manager.get(seat.gameId);
+        if (session) session.handleCommand(seat.playerId, "leaveGame", {});
+        socket.data.controller?.detach("left");
+    }
+
+    createGame(socket, { name }) {
+        const ip = socket.data.ip;
+        const clean = sanitizeName(name);
+        if (!clean.ok) return { ok: false, error: clean.error };
+        if (!this.createLimiter.take(ip)) return { ok: false, error: ERRORS.rateLimited };
+
+        this.releaseSeat(socket);
+        const session = this.manager.create();
+        if (!session) return { ok: false, error: "The server is full right now. Try again later." };
+
+        const result = session.join({ name: clean.value, controller: new HumanController(socket) });
+        if (!result.ok) {
+            this.manager.remove(session.id);
+            return { ok: false, error: result.error };
+        }
+        this.log("info", "game created");
+        return { ok: true, gameId: session.id, playerId: result.player.id, token: result.token };
+    }
+
+    joinGame(socket, { gameId, name }) {
+        if (!this.joinLimiter.take(socket.data.ip)) return { ok: false, error: ERRORS.rateLimited };
+        const code = normalizeGameCode(gameId);
+        const session = code && this.manager.get(code);
+        if (!session) return { ok: false, error: ERRORS.joinFailed };
+
+        this.releaseSeat(socket);
+        const result = session.join({ name, controller: new HumanController(socket) });
+        if (!result.ok) return { ok: false, error: result.error };
+        return { ok: true, gameId: session.id, playerId: result.player.id, token: result.token };
+    }
+
+    resume(socket, { gameId, token }) {
+        if (!this.joinLimiter.take(socket.data.ip)) return { ok: false, error: ERRORS.rateLimited };
+        const code = normalizeGameCode(gameId);
+        const session = code && this.manager.get(code);
+        const playerId = session?.playerIdForToken(token);
+        if (!playerId) return { ok: false, error: "That session has expired. Join again with the game code." };
+
+        if (socket.data.seat?.playerId !== playerId) this.releaseSeat(socket);
+        session.reattach(playerId, new HumanController(socket));
+        return { ok: true, gameId: session.id, playerId };
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /** Errors never crash the process and never reach the client verbatim. */
+    safe(socket, event, fn, reply) {
         try {
             fn();
         } catch (err) {
-            this._log("error", `Error in "${event}": ${err.message}`);
-            socket.emit("error", { message: "An internal server error occurred" });
+            this.log("error", `handler "${event}" failed: ${err?.stack || err}`);
+            reply?.({ ok: false, error: "Something went wrong." });
         }
-    }
-
-    /**
-     *  Extracted shared logic from nightPhase/dayPhase to eliminate
-     * duplication and centralise the authorization + error checks.
-     */
-    _runPhase(socket, data, phaseFn) {
-        if (!data?.gameId) {
-            return socket.emit("error", { message: "Invalid payload: gameId is required" });
-        }
-
-        const { gameId } = data;
-        const game = this.games[gameId];
-
-        if (!game) return socket.emit("error", { message: "Game not found" });
-
-        //  Prevent non-hosts from triggering phase transitions
-        if (!socket.data.isHost) {
-            return socket.emit("error", { message: "Only the host can advance the phase" });
-        }
-
-        phaseFn(game);
-
-        this.io.to(gameId).emit("phaseUpdate", this._sanitizeGameForBroadcast(game));
-
-        if (game.phase === "ended") {
-            this.io.to(gameId).emit("gameOver", this._sanitizeGameForBroadcast(game));
-        }
-    }
-
-    /**
-     *  Returns a sanitized view of the game for a specific player.
-     * Only their own role is included — other players' roles are stripped.
-     */
-    _sanitizeGameForPlayer(game, playerId) {
-        return {
-            ...this._sanitizeGameForBroadcast(game),
-            players: game.players.map((p) => ({
-                id: p.id,
-                name: p.name,
-                alive: p.alive,
-                // Only reveal the role if it belongs to the requesting player
-                role: p.id === playerId ? p.role : null,
-            })),
-        };
-    }
-
-    /**
-     * Returns a sanitized game view safe for broadcasting to all players.
-     * All roles are hidden.
-     */
-    _sanitizeGameForBroadcast(game) {
-        return {
-            id: game.id,
-            phase: game.phase,
-            round: game.round,
-            winner: game.winner,
-            events: game.events.filter((e) => e.visibility.public),
-            players: game.players.map((p) => ({
-                id: p.id,
-                name: p.name,
-                alive: p.alive,
-                role: p.revealed || game.phase === "ended" ? p.role : null,
-            })),
-        };
-    }
-
-    /**
-     * Centralised logger. Swap this body out for winston/pino in production.
-     */
-    _log(level, message) {
-        const ts = new Date().toISOString();
-        console[level === "error" ? "error" : "log"](`[${ts}] [${level.toUpperCase()}] ${message}`);
     }
 }

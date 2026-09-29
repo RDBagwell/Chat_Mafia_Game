@@ -24,7 +24,7 @@ export const DEFAULT_MAX_PLAYERS = 16;
  * transitions and GameSession (server/game/GameSession.js) talks to players.
  */
 export class Game {
-    constructor(id, { maxPlayers = DEFAULT_MAX_PLAYERS, settings = {} } = {}) {
+    constructor(id, { maxPlayers = DEFAULT_MAX_PLAYERS, settings = {}, chatHistoryLimit = 200 } = {}) {
         this.id = id;
         this.maxPlayers = maxPlayers;
         this.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -41,6 +41,8 @@ export class Game {
         this.resetRoundState();
         this.lastProtectedId = null;
         this.roleCounts = null;
+        this.chatHistoryLimit = chatHistoryLimit;
+        this.clearChat();
     }
 
     // -------------------------------------------------------------------------
@@ -199,6 +201,30 @@ export class Game {
             this.winner = { team: TEAMS.MAFIA, reason: "The Mafia equal or outnumber the town" };
         }
         return this.winner;
+    }
+
+    // -------------------------------------------------------------------------
+    // Chat
+    // -------------------------------------------------------------------------
+
+    clearChat() {
+        this.chat = { general: [], mafia: [], dead: [], system: [] };
+        this.chatSeq = 0;
+    }
+
+    /** Stores a message. `from` is a player, or null for the server. Permission checks happen in GameSession. */
+    addChat(channel, from, text) {
+        const message = {
+            id: ++this.chatSeq,
+            channel,
+            ts: Date.now(),
+            from: from ? { id: from.id, name: from.name } : null,
+            text,
+        };
+        const log = this.chat[channel];
+        log.push(message);
+        if (log.length > this.chatHistoryLimit) log.splice(0, log.length - this.chatHistoryLimit);
+        return message;
     }
 
     // -------------------------------------------------------------------------

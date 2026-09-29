@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; connect-src 'self' http://localhost:3000 ws://localhost:3000 ws://127.0.0.1:3000">
+    <meta name="referrer" content="no-referrer">
+    <title>Chat Mafia</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="icon" href="data:,">
+    <script type="module" src="js/app.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <h1 class="logo">Chat Mafia</h1>
+        <span id="connection" class="connection" role="status">Connecting…</span>
+    </header>
+
+    <main id="app">
+        <!-- Landing -->
+        <section id="screen-landing" class="screen" hidden>
+            <div class="card narrow">
+                <p class="tagline">A game of lies, trust and late-night murder. Find the Mafia before they find you.</p>
+                <label for="name-input">Your name</label>
+                <input id="name-input" maxlength="20" autocomplete="nickname" placeholder="2–20 letters, numbers, - or _">
+
+                <div class="split">
+                    <div>
+                        <h2>New game</h2>
+                        <button id="create-btn" class="primary">Create game</button>
+                    </div>
+                    <div>
+                        <h2>Join a game</h2>
+                        <label for="code-input" class="sr-only">Game code</label>
+                        <input id="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="Game code">
+                        <button id="join-btn">Join</button>
+                    </div>
+                </div>
+                <details class="howto">
+                    <summary>How to play</summary>
+                    <ul>
+                        <li><strong>Town</strong> (Villagers, Doctor, Detective) wins when every Mafia member is dead.</li>
+                        <li><strong>Mafia</strong> win when they equal or outnumber everyone else.</li>
+                        <li><strong>Night:</strong> the Mafia pick a victim, the Doctor protects someone (not the same player twice in a row), the Detective learns whether someone is Mafia.</li>
+                        <li><strong>Day:</strong> discuss, then vote to execute someone — or skip. Ties execute nobody.</li>
+                        <li>The dead become observers: they see everything but can only talk to other dead players.</li>
+                    </ul>
+                </details>
+            </div>
+        </section>
+
+        <!-- Lobby -->
+        <section id="screen-lobby" class="screen" hidden>
+            <div class="layout">
+                <div class="card">
+                    <h2>Lobby <span class="code" id="lobby-code"></span></h2>
+                    <div class="invite">
+                        <input id="invite-link" readonly aria-label="Invite link">
+                        <button id="copy-invite">Copy link</button>
+                    </div>
+                    <h3 id="lobby-count"></h3>
+                    <ul id="lobby-players" class="players"></ul>
+                    <div class="row">
+                        <button id="add-bot-btn" class="host-only">Add bot</button>
+                        <button id="start-btn" class="primary host-only">Start game</button>
+                        <button id="leave-btn" class="subtle">Leave</button>
+                    </div>
+                    <p id="lobby-hint" class="hint"></p>
+                </div>
+                <div class="card">
+                    <h2>Settings</h2>
+                    <form id="settings-form" class="settings"></form>
+                </div>
+                <div class="card chat-card" id="lobby-chat-slot"></div>
+            </div>
+        </section>
+
+        <!-- Game (also used for the game-over view) -->
+        <section id="screen-game" class="screen" hidden>
+            <div id="phase-banner" class="phase-banner">
+                <div>
+                    <span id="phase-name" class="phase-name"></span>
+                    <span id="phase-round" class="phase-round"></span>
+                </div>
+                <div class="phase-right">
+                    <span id="phase-timer" class="timer" aria-live="off"></span>
+                    <button id="advance-btn" class="host-only small">End phase now</button>
+                </div>
+            </div>
+            <div id="observer-banner" class="observer-banner" hidden>You are dead — observer mode. You can see everything, but only the dead can hear you.</div>
+            <div id="gameover" class="card gameover" hidden>
+                <h2 id="gameover-title"></h2>
+                <p id="gameover-reason"></p>
+                <div class="row">
+                    <button id="new-game-btn" class="primary host-only">New game with this lobby</button>
+                    <button id="leave-game-btn" class="subtle">Leave</button>
+                </div>
+            </div>
+            <div class="layout game-layout">
+                <div class="col">
+                    <div class="card role-card" id="role-card"></div>
+                    <div class="card" id="action-panel"></div>
+                    <div class="card">
+                        <h3>Players</h3>
+                        <ul id="game-players" class="players"></ul>
+                    </div>
+                </div>
+                <div class="card chat-card" id="game-chat-slot"></div>
+            </div>
+        </section>
+
+        <!-- Chat panel (moved between lobby and game) -->
+        <div id="chat-panel" class="chat">
+            <div id="chat-tabs" class="tabs" role="tablist"></div>
+            <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+            <form id="chat-form" class="chat-form">
+                <input id="chat-input" maxlength="500" autocomplete="off" aria-label="Message">
+                <button id="chat-send" type="submit">Send</button>
+            </form>
+        </div>
+    </main>
+
+    <dialog id="confirm-dialog">
+        <p id="confirm-text"></p>
+        <div class="row">
+            <button type="button" class="subtle" id="confirm-cancel">Cancel</button>
+            <button type="button" class="danger" id="confirm-ok">Confirm</button>
+        </div>
+    </dialog>
+
+    <div id="toast" class="toast" role="alert" hidden></div>
+</body>
+</html>

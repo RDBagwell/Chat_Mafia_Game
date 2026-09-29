@@ -37,3 +37,13 @@ describe("Phase 1 regressions (socket level)", () => {
         expect(ev.data.killedId).toBe(victim.id);
     });
 });
+
+describe("seat switching", () => {
+    it("creating a new game from a seated socket releases the old seat", async () => {
+        const { players, host } = await setupGame(env, 5, { start: false });
+        const mover = players[2];
+        const res = await mover.request("createGame", { name: "Mover" });
+        expect(res.ok).toBe(true);
+        await host.waitForState((s) => s.players.length === 4);
+    });
+});

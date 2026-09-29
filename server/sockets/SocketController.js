@@ -147,7 +147,9 @@ export class SocketController {
         const { seat } = socket.data;
         if (!seat) return;
         const session = this.manager.get(seat.gameId);
-        if (session) session.handleCommand(seat.playerId, "leaveGame", {});
+        const player = session?.game.getPlayer(seat.playerId);
+        // Direct call, not handleCommand: releasing a seat must not be rate limited.
+        if (player) session.leave(player);
         socket.data.controller?.detach("left");
     }
 

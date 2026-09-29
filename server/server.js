@@ -1,19 +1,19 @@
-import app from './index.js';
-import http from 'http';
-import { Server } from 'socket.io';
-import { SocketController } from './sockets/SocketController .js';
+import "dotenv/config";
+import { createServer, defaultLog } from "./app.js";
+import { loadConfig } from "./config.js";
 
-const server = http.createServer(app);
-const io = new Server(server, { 
-  cors: { origin: "*", methods: ["GET", "POST"] } 
-});
+const config = loadConfig();
+const server = createServer({ config });
+const port = await server.listen(config.port);
+defaultLog("info", `Mafia server listening on port ${port}`);
+defaultLog("info", `Allowed origins: ${config.allowedOrigins.join(", ")}`);
 
-const PORT = process.env.PORT || 3000;
+process.on("uncaughtException", (err) => defaultLog("error", `uncaught: ${err?.stack || err}`));
+process.on("unhandledRejection", (err) => defaultLog("error", `unhandled rejection: ${err?.stack || err}`));
 
-const games = {};
-
-new SocketController(io, games);
-
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, async () => {
+        await server.close();
+        process.exit(0);
+    });
+}

@@ -1,13 +1,30 @@
 {
-  "name": "llm-mafia",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "chat-mafia-game",
+  "version": "0.2.0",
+  "description": "Online Mafia (social deduction) game: Socket.io server + static vanilla-JS client",
+  "private": true,
+  "type": "module",
+  "main": "server/server.js",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch-path=server --watch-path=client server/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "vendor": "node -e \"const fs=require('fs');fs.writeFileSync('client/vendor/socket.io.esm.min.js',fs.readFileSync('node_modules/socket.io-client/dist/socket.io.esm.min.js','utf8').replace(/\\n\\/\\/# sourceMappingURL=.*$/,''))\""
+  },
   "license": "ISC",
-  "type": "module"
+  "dependencies": {
+    "dotenv": "17.2.4",
+    "express": "5.2.1",
+    "helmet": "8.3.0",
+    "socket.io": "4.8.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "4.8.3",
+    "vitest": "4.1.11"
+  }
 }

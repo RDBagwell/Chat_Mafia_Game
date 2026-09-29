@@ -1,0 +1,31 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Creates the Socket.io game server as a free web service.
+services:
+  - type: web
+    name: chat-mafia-server
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      # Your GitHub Pages origin, e.g. https://rdbagwell.github.io (no path).
+      # Render asks for this value when you create the Blueprint.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Render sits behind Cloudflare, which overwrites True-Client-IP; used
+      # for per-IP rate limits. X-Forwarded-For is only a fallback.
+      - key: CLIENT_IP_HEADER
+        value: true-client-ip
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      # The client is served by GitHub Pages, not by this service.
+      - key: SERVE_CLIENT
+        value: "false"
+      - key: ENABLE_LLM_PLAYERS
+        value: "false"

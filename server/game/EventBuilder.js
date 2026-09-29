@@ -1,39 +1,58 @@
+/**
+ * Builds structured event objects. Every entry in game.events comes from here,
+ * so events always share one shape:
+ *   { seq, type, round, phase, ts, visibility, data }
+ */
 export class EventBuilder {
-
-    buildNightEvent(game, result) {
-
+    build(game, type, data = {}, visibility = { public: true }) {
         return {
+            seq: ++game.eventSeq,
+            type,
             round: game.round,
-            killType: "night",
-            targeted: result.targeted,
-            death: result.mafiaKilled,
-            deathRole: result.mafiaKilled
-                ? game.getPlayer(result.mafiaKilled)?.role
-                : null,
-            protected: result.doctorSaved,
-            investigated: result.detectiveResult?.player ?? null,
-            investigationResult: result.detectiveResult?.role ?? null,
-            activePlayers: game.activePlayers(),
-            winCondition: result.winCondition
+            phase: game.phase,
+            ts: Date.now(),
+            visibility,
+            data,
         };
+    }
 
+    /**
+     * Public night summary: only who died. Who the Mafia targeted, who the
+     * Doctor protected and what the Detective learned are never public.
+     */
+    buildNightEvent(game, result) {
+        const victim = result.killedId ? game.getPlayer(result.killedId) : null;
+        return this.build(game, "night_result", {
+            killedId: victim?.id ?? null,
+            killedName: victim?.name ?? null,
+            killedRole: victim && victim.revealed ? victim.role : null,
+        });
+    }
+
+    /** Observer-only (dead players) record of what actually happened at night. */
+    buildNightDetailEvent(game, result) {
+        return this.build(
+            game,
+            "night_detail",
+            {
+                targetedId: result.targetedId,
+                protectedId: result.protectedId,
+                saved: result.saved,
+                investigation: result.investigation,
+            },
+            { dead: true }
+        );
     }
 
     buildDayEvent(game, result) {
-
-        return {
-            round: game.round,
-            killType: "day",
-            executed: result.executed,
-            executedRole: result.executed
-                ? game.getPlayer(result.executed)?.role
-                : null,
-            voteBreakdown: result.voteBreakdown,
+        const executed = result.executedId ? game.getPlayer(result.executedId) : null;
+        return this.build(game, "vote_result", {
+            executedId: executed?.id ?? null,
+            executedName: executed?.name ?? null,
+            executedRole: executed && executed.revealed ? executed.role : null,
+            tally: result.tally,
             tie: result.tie,
-            activePlayers: game.activePlayers(),
-            winCondition: result.winCondition
-        };
-
+            skipped: result.skipped,
+        });
     }
-
 }

@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 import { loadConfig } from "./config.js";
 import { GameManager } from "./game/GameManager.js";
 import { SocketController } from "./sockets/SocketController.js";
+import { defaultBotFactory } from "./players/botFactory.js";
 
 export const CLIENT_DIR = fileURLToPath(new URL("../client", import.meta.url));
 
@@ -19,7 +20,7 @@ export function defaultLog(level, message) {
  * Builds the HTTP + Socket.io server without listening, so tests can start
  * isolated instances. `botFactory` is how Phase 4 controllers plug in.
  */
-export function createServer({ config = loadConfig(), log = defaultLog, botFactory = null, scheduler } = {}) {
+export function createServer({ config = loadConfig(), log = defaultLog, botFactory = defaultBotFactory, scheduler } = {}) {
     const allowed = new Set(config.allowedOrigins);
     const app = express();
     app.disable("x-powered-by");

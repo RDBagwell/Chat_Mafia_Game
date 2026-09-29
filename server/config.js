@@ -73,7 +73,7 @@ export function loadConfig(env = process.env) {
         llm: {
             enabled: env.ENABLE_LLM_PLAYERS === "true",
             apiKey: env.ANTHROPIC_API_KEY || null,
-            model: env.ANTHROPIC_MODEL || "claude-sonnet-5-5",
+            model: env.ANTHROPIC_MODEL || "claude-opus-5-5",
             maxMessageChars: 300,
             minMsBetweenMessages: 8000,
             tokenBudgetPerGame: int(env.LLM_TOKEN_BUDGET_PER_GAME, 60000),

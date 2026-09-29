@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "../../server/config.js";
 
 describe("config", () => {
@@ -24,7 +25,7 @@ describe("config", () => {
 });
 
 describe("Pages build", () => {
-    const root = new URL("../../", import.meta.url).pathname;
+    const root = fileURLToPath(new URL("../../", import.meta.url));
     function build(url) {
         const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pages-"));
         fs.cpSync(path.join(root, "client"), path.join(cwd, "client"), { recursive: true });

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * A minimal fake DOM. Any attempt to parse HTML (innerHTML, outerHTML,
@@ -88,7 +89,7 @@ describe("client rendering treats user text as inert", () => {
 });
 
 describe("client source never parses HTML", () => {
-    const dir = new URL("../../client/js/", import.meta.url).pathname;
+    const dir = fileURLToPath(new URL("../../client/js/", import.meta.url));
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
 
     it.each(files)("%s has no innerHTML / outerHTML / insertAdjacentHTML / document.write / eval", (file) => {

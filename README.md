@@ -5,7 +5,7 @@ An online game of **Mafia** (also known as Werewolf) played in your browser. A h
 - Up to 16 players per game, 5 minimum (4 in test mode). Invite friends with a link.
 - Server-authoritative: roles, timers, votes and chat permissions all live on the server.
 - Add **bots** from the lobby to fill seats or to test a whole game by yourself.
-- Plumbing for future **AI (LLM) players** (off by default, with no API calls).
+- Optional **AI players** powered by Claude, which talk, bluff and vote like human players (off unless you add an Anthropic API key).
 
 ## How to play
 
@@ -122,10 +122,41 @@ Open the Pages URL, enter your name and click **Create game**. In the lobby, cli
 | The Pages workflow fails with "GAME_SERVER_URL is not set" | Add the variable (step 2) under **Variables**, not **Secrets**. |
 | Render deploy fails with "ALLOWED_ORIGINS is required" | Set it in the service → **Environment**. |
 
+## AI players
+
+AI players are seats played by Claude (Anthropic's model). Unlike the random bots, they read the chat, argue a case, bluff when they're Mafia, and choose targets and votes from what they know. They are off by default. When they're on, the host sees an **Add AI player** button in the lobby.
+
+They play under exactly the same rules as people. Each AI player sees only what its own seat would see (its role, its teammates if it's Mafia, and the chats it's allowed to read), and every move goes through the same server checks as a human's. If the model makes an illegal choice, or the API is slow or down, that AI player falls back to a random legal move, so the game never stalls.
+
+### Turn them on (Render)
+
+1. **Get an API key.** Sign in at <https://console.anthropic.com>, add a payment method or credit under **Billing**, then go to **API Keys** → **Create Key**. Copy the key (it starts with `sk-ant-`); it's shown only once.
+2. **Add it to Render.** In the Render dashboard, open **chat-mafia-server** → **Environment** → **Add Environment Variable**:
+   - `ANTHROPIC_API_KEY` = your key
+   - `ENABLE_LLM_PLAYERS` = `true`
+
+   Click **Save Changes**. Render redeploys automatically.
+3. **Check it worked.** In the service's **Logs**, look for `AI players enabled (model claude-opus-5-5)`. Then create a game: the lobby shows **Add AI player**.
+
+To run them locally, put the same two variables in your `.env` file and restart `npm run dev`.
+
+### Cost
+
+Every AI turn is an API call billed to your Anthropic account. The default model is `claude-opus-5-5`, run at low effort to keep turns short. A typical game with five AI players costs very roughly **$0.50–$1.50**. All AI players in one game share a token budget (`LLM_TOKEN_BUDGET_PER_GAME`, default 150,000 tokens), which caps a single game at about $3 in the worst case. When the budget runs out, the AI players keep playing with random legal moves and stop chatting. The budget resets for each new game.
+
+To spend less, lower `LLM_TOKEN_BUDGET_PER_GAME`, or set `ANTHROPIC_MODEL` to a cheaper model such as `claude-haiku-5-5`. Anyone who can reach your game can add AI players to a game they host, so keep an eye on usage in the Anthropic Console, where you can also set a monthly spend limit.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| No **Add AI player** button | `ENABLE_LLM_PLAYERS` must be exactly `true` and `ANTHROPIC_API_KEY` must be set. Check the Render logs for `AI players enabled`, or for `ANTHROPIC_API_KEY is not set`. |
+| AI players act randomly and never chat | Check the Render logs for `LLM ... failed: auth` (wrong or revoked key), `rate_limited` or `unavailable`. After an auth failure the server stops calling the API until it restarts. |
+
 ## Configuration
 
 Everything is read from environment variables. See [`.env.example`](.env.example) and [`server/config.js`](server/config.js). Copy `.env.example` to `.env` for local overrides. `.env` is gitignored.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the threat model and each mitigation, including the rules for future AI players.
+See [SECURITY.md](SECURITY.md) for the threat model and each mitigation, including the safety rules for AI players.

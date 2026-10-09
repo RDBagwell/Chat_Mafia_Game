@@ -27,5 +27,10 @@ services:
       # The client is served by GitHub Pages, not by this service.
       - key: SERVE_CLIENT
         value: "false"
+      # AI players. Set both in the Render dashboard (Environment), not here:
+      # ENABLE_LLM_PLAYERS=true turns them on; ANTHROPIC_API_KEY is a secret.
+      # Without both, the "Add AI player" button stays hidden.
       - key: ENABLE_LLM_PLAYERS
-        value: "false"
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

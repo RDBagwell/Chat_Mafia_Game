@@ -42,7 +42,8 @@ server/
     view.js              getViewFor(): the ONLY way game state leaves the server
   players/
     PlayerController.js  seat interface (onState / onChat / act); HumanController, RandomBot
-    llm/                 LLMPlayer stub, prompt builder, token budget, Anthropic provider skeleton
+    llm/                 LLMPlayer, prompt builder, token budget, AnthropicProvider (@anthropic-ai/sdk)
+    botFactory.js        builds bot seats: "random" (RandomBot) or "llm" (LLMPlayer, only when a provider is configured)
   security/              validation.js (zod schemas, name/chat sanitising), rateLimit.js, random.js
 client/
   js/dom.js              el(): the ONLY way the client builds DOM (textContent only)
@@ -67,7 +68,7 @@ client/
 
 ## Conventions
 
-- **Dependencies are pinned exactly.** The approved set is express, socket.io, dotenv, zod, helmet; plus vitest and socket.io-client for development. **Ask the owner before adding any other dependency**, including `@anthropic-ai/sdk`.
+- **Dependencies are pinned exactly.** The approved set is express, socket.io, dotenv, zod, helmet and @anthropic-ai/sdk; plus vitest and socket.io-client for development. **Ask the owner before adding any other dependency.**
 - **vitest is held at 4.x.** vitest 5 needs Node ≥ 22.12, and the project supports Node 20+.
 - **Use npm 11 when changing dependencies.** npm 10.9.x crashes with `Cannot read properties of null (reading 'edgesOut')` when adding vitest; use `npx npm@11 install`. `npm ci` works fine with npm 10.
 - Keep the existing class structure (Game / PhaseEngine / resolvers / GameSession). Engine code stays free of sockets; the transport is injected.
@@ -76,7 +77,8 @@ client/
 
 ## Testing
 
-- **Unit tests** (`test/unit/`) cover the engine, view, channels, validation, config, the Pages build, the LLM plumbing, and the client XSS guarantees (using a fake DOM).
+- **Unit tests** (`test/unit/`) cover the engine, view, channels, validation, config, the Pages build, the LLM player and provider, and the client XSS guarantees (using a fake DOM).
+- **Never call the real Anthropic API in tests.** Inject a fake: `new AnthropicProvider({ enabled: true, client: fake })` for provider tests, or `startServer({ llmProvider: fake })` for integration tests (see `test/integration/ai-players.test.js`). `startServer()` without `llmProvider` builds one from config, which is disabled in tests.
 - **Integration tests** (`test/integration/`) start a real server with `startServer()` from `test/helpers.js` and connect with `socket.io-client`. A new security rule needs an integration test proving a hostile client can't get around it.
 
 Traps I hit:
@@ -93,5 +95,5 @@ Traps I hit:
 
 ## Open items
 
-- **AI players:** `server/players/llm/` is plumbing only. `AnthropicProvider.send()` is a TODO pending approval to add `@anthropic-ai/sdk`. It is gated by `ENABLE_LLM_PLAYERS=true` and needs `ANTHROPIC_API_KEY`. Keep the LLM safety rules in SECURITY.md intact: prompts are built only from that player's own view, chat is treated as untrusted, actions use the same validation as humans, and output and spend are capped.
+- **AI players** are live behind `ENABLE_LLM_PLAYERS=true` + `ANTHROPIC_API_KEY` (set in the Render dashboard, not `render.yaml`). The default model is `claude-opus-5-5` at low effort, with server-side refusal fallbacks. Keep the LLM safety rules in SECURITY.md intact: prompts are built only from that player's own view, chat is treated as untrusted (with `<`/`>` neutralised), actions use the same validation as humans, and output and spend are capped. Prompt wording lives in `server/players/llm/prompt.js` and can be tuned; there is no eval for prompt quality yet.
 - **Per-IP limits on Render** read `True-Client-IP` (`CLIENT_IP_HEADER`), falling back to X-Forwarded-For hops. This hasn't been verified in production; if players on different networks hit "too fast" errors together, revisit it.

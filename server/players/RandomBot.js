@@ -47,6 +47,12 @@ export class RandomBot extends PlayerController {
 
     onState(view) {
         this.view = view;
+        if (view.phase === "lobby") {
+            // A new game in the same lobby restarts round numbers; forget the old ones.
+            this.plannedFor = null;
+            this.chattedIn = null;
+            return;
+        }
         const key = this.phaseKey(view);
         const action = view.you.action;
 

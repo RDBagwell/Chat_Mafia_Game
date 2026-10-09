@@ -20,6 +20,7 @@ export const ERRORS = Object.freeze({
     nameTaken: "That name is already taken in this game.",
     full: "This game is full.",
     botsDisabled: "Bots are not available.",
+    aiDisabled: "AI players are not enabled on this server.",
 });
 
 export const realScheduler = Object.freeze({
@@ -64,6 +65,7 @@ export class GameSession {
             chatHistoryLimit: config.chatHistoryLimit,
         });
         this.engine = this.game.phaseRunner;
+        this.game.features = { aiPlayers: Boolean(botFactory?.features?.aiPlayers) };
 
         this.controllers = new Map(); // playerId -> controller
         this.tokens = new Map(); // sha256(token) -> playerId
@@ -96,7 +98,7 @@ export class GameSession {
     // =========================================================================
 
     /** Seats a new player (lobby only). Returns { ok, player, token } — token only for humans. */
-    join({ name, controller, isBot = false }) {
+    join({ name, controller, isBot = false, botKind = null }) {
         const game = this.game;
         if (this.destroyed || game.phase !== PHASES.LOBBY) return fail(ERRORS.joinFailed);
         if (game.players.length >= game.maxPlayers) return fail(ERRORS.full);
@@ -107,6 +109,7 @@ export class GameSession {
         if (game.findPlayerByName(clean.value)) return fail(ERRORS.nameTaken);
 
         const player = game.addPlayer({ name: clean.value, isBot });
+        player.botKind = isBot ? botKind ?? "random" : null;
         player.connected = true;
         player.connectedSince = this.now();
 
@@ -279,7 +282,7 @@ export class GameSession {
             case "startGame": return this.startGame(player);
             case "advancePhase": return this.advancePhase(player);
             case "kick": return this.kick(player, valid.data);
-            case "addBot": return this.addBot(player);
+            case "addBot": return this.addBot(player, valid.data);
             case "newGame": return this.newGame(player);
             case "leaveGame": return this.leave(player);
             default: return fail(ERRORS.invalid);
@@ -440,15 +443,18 @@ export class GameSession {
         return OK;
     }
 
-    addBot(player) {
+    addBot(player, { kind = "random" } = {}) {
         const game = this.game;
         if (!this.isHost(player)) return fail(ERRORS.notHost);
         if (game.phase !== PHASES.LOBBY) return fail(ERRORS.notAllowed);
         if (!this.botFactory) return fail(ERRORS.botsDisabled);
         if (game.players.length >= game.maxPlayers) return fail(ERRORS.full);
-        const name = BOT_NAMES.map((n) => `Bot ${n}`).find((n) => !game.findPlayerByName(n) && !this.bannedNames.has(normalizeNameKey(n)));
+        const prefix = kind === "llm" ? "AI" : "Bot";
+        const name = BOT_NAMES.map((n) => `${prefix} ${n}`).find((n) => !game.findPlayerByName(n) && !this.bannedNames.has(normalizeNameKey(n)));
         if (!name) return fail(ERRORS.full);
-        const result = this.join({ name, controller: this.botFactory(this), isBot: true });
+        const controller = this.botFactory(this, kind);
+        if (!controller) return fail(kind === "llm" ? ERRORS.aiDisabled : ERRORS.botsDisabled);
+        const result = this.join({ name, controller, isBot: true, botKind: kind });
         return result.ok ? OK : result;
     }
 
@@ -467,6 +473,7 @@ export class GameSession {
         Object.assign(game, { phase: PHASES.LOBBY, phaseEndsAt: null, round: 0, winner: null, events: [], roleCounts: null, lastProtectedId: null });
         game.resetRoundState();
         game.clearChat();
+        this.llmBudget?.reset();
         this.readableSignature.clear();
         if (!game.getPlayer(game.hostId)) this.transferHost();
         this.system("The host started a new game. Waiting in the lobby.");

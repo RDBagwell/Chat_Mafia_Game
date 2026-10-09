@@ -137,6 +137,7 @@ button.small { padding: 4px 10px; font-size: 0.85rem; }
 .badges { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
 .badge { font-size: 0.72rem; padding: 1px 6px; border-radius: 999px; background: #30344a; color: var(--muted); }
 .badge.host { background: #5a4520; color: #ffd98a; }
+.badge.ai { background: #2d2544; color: #d6ccff; }
 .badge.you { background: #25405a; color: #a8d4ff; }
 .badge.offline { background: #3d3030; }
 .badge.role-mafia { background: #5a2020; color: #ffb3b3; }

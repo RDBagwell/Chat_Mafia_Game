@@ -52,7 +52,8 @@ export function renderPlayerItem(view, player, { onKick } = {}) {
     const you = view.you;
     const badges = [];
     if (player.isHost) badges.push(el("span", { class: "badge host", text: "host" }));
-    if (player.isBot) badges.push(el("span", { class: "badge bot", text: "bot" }));
+    if (player.isAI) badges.push(el("span", { class: "badge ai", text: "AI" }));
+    else if (player.isBot) badges.push(el("span", { class: "badge bot", text: "bot" }));
     if (player.id === you.id) badges.push(el("span", { class: "badge you", text: "you" }));
     if (!player.connected && !player.kicked) badges.push(el("span", { class: "badge offline", text: "offline" }));
     if (player.kicked) badges.push(el("span", { class: "badge kicked", text: "kicked" }));

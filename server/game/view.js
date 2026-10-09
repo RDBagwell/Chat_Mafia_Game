@@ -87,6 +87,7 @@ function publicPlayer(game, viewer, p) {
         name: p.name,
         alive: p.alive,
         isBot: p.isBot,
+        isAI: p.botKind === "llm",
         isHost: p.id === game.hostId,
         connected: p.isBot ? true : Boolean(p.connected),
         kicked: p.kicked,
@@ -117,6 +118,7 @@ export function getViewFor(game, playerId, { now = Date.now(), includeChat = fal
         minPlayers: game.minPlayers(),
         maxPlayers: game.maxPlayers,
         hostId: game.hostId,
+        features: { aiPlayers: Boolean(game.features?.aiPlayers) },
         winner: game.phase === PHASES.ENDED ? game.winner : null,
         you: {
             id: viewer.id,

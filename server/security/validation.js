@@ -32,7 +32,7 @@ export const eventSchemas = {
     leaveGame: empty,
     updateSettings: z.strictObject({ settings: settingsSchema }),
     startGame: empty,
-    addBot: empty,
+    addBot: z.strictObject({ kind: z.enum(["random", "llm"]).optional() }),
     kick: z.strictObject({ playerId }),
     advancePhase: empty,
     nightAction: z.strictObject({ targetId: playerId }),

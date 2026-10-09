@@ -266,6 +266,7 @@ function renderLobby(view) {
     setText($("lobby-code"), view.gameId);
     const link = `${location.origin}${location.pathname}?game=${encodeURIComponent(view.gameId)}`;
     $("invite-link").value = link;
+    show($("add-ai-btn"), Boolean(view.features?.aiPlayers));
     setText($("lobby-count"), `Players (${view.players.length}/${view.maxPlayers})`);
     $("lobby-players").replaceChildren(...view.players.map((p) => renderPlayerItem(view, p, { onKick: kick })));
     const needed = view.minPlayers - view.players.length;
@@ -329,7 +330,8 @@ function initButtons() {
         }
     });
     $("start-btn").addEventListener("click", () => act("startGame", {}));
-    $("add-bot-btn").addEventListener("click", () => act("addBot", {}));
+    $("add-bot-btn").addEventListener("click", () => act("addBot", { kind: "random" }));
+    $("add-ai-btn").addEventListener("click", () => act("addBot", { kind: "llm" }));
     $("advance-btn").addEventListener("click", () => act("advancePhase", {}));
     $("new-game-btn").addEventListener("click", () => act("newGame", {}));
     const leave = async () => {

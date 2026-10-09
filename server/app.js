@@ -6,7 +6,8 @@ import { Server } from "socket.io";
 import { loadConfig } from "./config.js";
 import { GameManager } from "./game/GameManager.js";
 import { SocketController } from "./sockets/SocketController.js";
-import { defaultBotFactory } from "./players/botFactory.js";
+import { createBotFactory } from "./players/botFactory.js";
+import { createProvider } from "./players/llm/providers/AnthropicProvider.js";
 
 export const CLIENT_DIR = fileURLToPath(new URL("../client", import.meta.url));
 
@@ -18,9 +19,11 @@ export function defaultLog(level, message) {
 
 /**
  * Builds the HTTP + Socket.io server without listening, so tests can start
- * isolated instances. `botFactory` is how Phase 4 controllers plug in.
+ * isolated instances. Tests can inject `llmProvider` (a fake) so nothing
+ * calls the network; otherwise one is created from config when
+ * ENABLE_LLM_PLAYERS=true and ANTHROPIC_API_KEY is set.
  */
-export function createServer({ config = loadConfig(), log = defaultLog, botFactory = defaultBotFactory, scheduler } = {}) {
+export function createServer({ config = loadConfig(), log = defaultLog, llmProvider, scheduler } = {}) {
     const allowed = new Set(config.allowedOrigins);
     const app = express();
     app.disable("x-powered-by");
@@ -83,7 +86,11 @@ export function createServer({ config = loadConfig(), log = defaultLog, botFacto
 
     const manager = new GameManager(config, {
         transport: { toRoom: (room, event, payload) => io.to(room).emit(event, payload) },
-        botFactory: botFactory ? (session) => botFactory(session, config) : null,
+        botFactory: createBotFactory({
+            config,
+            llmProvider: llmProvider === undefined ? createProvider(config.llm, log) : llmProvider,
+            log,
+        }),
         log,
         ...(scheduler ? { scheduler } : {}),
     });

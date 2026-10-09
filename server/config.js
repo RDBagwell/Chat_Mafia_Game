@@ -76,7 +76,11 @@ export function loadConfig(env = process.env) {
             model: env.ANTHROPIC_MODEL || "claude-opus-5-5",
             maxMessageChars: 300,
             minMsBetweenMessages: 8000,
-            tokenBudgetPerGame: int(env.LLM_TOKEN_BUDGET_PER_GAME, 60000),
+            messagesPerDiscussion: 2,
+            speakDelayMs: [4000, 20000],
+            // Shared by every AI seat in one game; when it runs out they fall
+            // back to random legal moves and stop chatting.
+            tokenBudgetPerGame: int(env.LLM_TOKEN_BUDGET_PER_GAME, 150000),
         },
     };
 }

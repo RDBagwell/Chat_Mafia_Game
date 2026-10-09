@@ -16,6 +16,11 @@ export class TokenBudget {
         return this.remaining >= estimate;
     }
 
+    /** A new game in the same lobby starts with a full budget. */
+    reset() {
+        this.used = 0;
+    }
+
     record(usage) {
         this.used += (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
     }
